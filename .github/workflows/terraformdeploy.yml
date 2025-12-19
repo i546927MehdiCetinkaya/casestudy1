@@ -1,0 +1,68 @@
+name: Terraform Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::920120424621:role/githubrepo
+          aws-region: eu-central-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Show
+        run: terraform show
+
+      - name: Terraform Plan
+        run: terraform plan
+
+      - name: Terraform Apply
+        env:
+          TF_VAR_db_username: ${{ secrets.DB_USERNAME }}
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+        run: terraform apply -auto-approve
+
+      - name: Save state list to file
+        run: terraform state list > terraform-state.txt
+
+      - name: Generate YAML state overview
+        run: |
+          echo "terraform_state:" > terraform-state.yml
+          while read line; do
+            type=$(echo "$line" | cut -d'.' -f1)
+            name=$(echo "$line" | cut -d'.' -f2)
+            if ! grep -q "  $type:" terraform-state.yml; then
+              echo "  $type:" >> terraform-state.yml
+            fi
+            echo "    - $name" >> terraform-state.yml
+          done < terraform-state.txt
+
+      - name: Upload state list (TXT)
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-txt
+          path: terraform-state.txt 
+
+      - name: Upload state overview (YAML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-yaml
+          path: terraform-state.yml
